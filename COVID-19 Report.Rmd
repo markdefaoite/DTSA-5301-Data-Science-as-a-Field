@@ -1,0 +1,179 @@
+---
+title: "COVID-19 Report"
+author: "M. White"
+date: "2025-02-28"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(scales)
+library(psych)
+
+options(scipen=999)
+options(warn = -1)
+
+```
+
+## Introduction
+
+In this document, we will compare the total number of confirmed cases of Covid-19 to total deaths in each country. This information could indicate how effective some countries' responses to the Pandemic were. The data has been taken from the John Hopkins university GitHub page (https://github.com/govex/COVID-19/tree/master/data_tables/vaccine_data). Please note that these data sets stopped being updated on the 9th of March 2023. 
+
+
+## R Markdown
+
+
+```{r}
+
+
+rurl <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+file_names <- c("time_series_covid19_confirmed_US.csv",
+           "time_series_covid19_confirmed_global.csv",
+           "time_series_covid19_deaths_US.csv",
+           "time_series_covid19_deaths_global.csv",
+           "time_series_covid19_recovered_global.csv")
+files <- str_c(rurl,file_names)
+
+# load the data into datasets
+confirmed_global_data <- read.csv(files[2])
+
+deaths_global_data <- read.csv(files[4])
+
+#Tidy the data
+
+confirmed_global <- confirmed_global_data %>%
+  select(Province.State, Country.Region, `X3.9.23`) %>%
+  rename(total_cases = `X3.9.23`)
+
+#head(confirmed_global)
+
+
+deaths_global <- deaths_global_data%>% 
+  select(Province.State, Country.Region, `X3.9.23`) %>%
+  rename(total_deaths = `X3.9.23`)
+
+#head(deaths_global)
+
+
+# Join the datasets into one data model with a new value death_ratio which is the ratio of cases to deaths
+
+global_data <- confirmed_global %>% full_join(deaths_global)
+
+
+global_data <- global_data %>%
+  mutate(death_ratio = total_deaths / total_cases) %>%
+  arrange(desc(death_ratio)) 
+
+#head(global_data)
+
+
+global_data <- global_data %>%
+  mutate(
+    death_ratio = ifelse(total_cases > 0, total_deaths / total_cases, NA),
+    death_ratio = percent(death_ratio, accuracy = 0.1)  # Format as percentage
+  ) %>%
+  filter(total_cases >= 1e6) # filter the dataframe so that it only includes regions that had more than 1 million cases
+
+# Convert death_ratio back to numeric (remove % and divide by 100)
+average_death_ratio <- global_data %>%
+  mutate(death_ratio = as.numeric(gsub("%", "", death_ratio)) / 100) %>%  # Convert to numeric
+  summarise(avg_death_ratio = mean(death_ratio, na.rm = TRUE))  # Compute mean
+
+# Print result
+print(average_death_ratio)
+
+#head(global_data)
+summary(global_data)
+#describe(global_data)
+
+# a data frame that only has the 10 regions with the most cases globally
+top_10 <- global_data %>%
+  arrange(desc(total_cases)) %>%
+  head(10)
+```
+
+
+## The top 10 most cases per country 
+
+Here you can see the 10 countries that had the most confirmed cases of COVID-19 globally. We can see here that the United States of America had the most cases of Corona virus and also had the most deaths related to the corona virus compared to other countries. However, it is important to note that the ratio of cases to deaths was mostly in line with the global average. We calculated the average death ratio above as 0.0115974 or about 1.2% 
+
+
+This might suggest that although the virus spread through the large population of the United States, deaths were avoided because of the accessibility of vaccines and healthcare. 
+
+  
+We can also see that the western European countries had a slightly lower ratio of fatalities than the USA, particularly in France and Germany, but this pales in comparison to Japan and South Korea. These countries both had one of the highest numbers of infected citizens globally, but the fatality rate was 0.2% in Japan and 0.1% in South Korea. If any country wishes to be prepared for another global pandemic, then these are the countries that we will need to learn from. 
+
+
+
+```{r}
+top_10
+summary(top_10)
+#describe(top_10)
+
+# Create the bar chart
+ggplot(top_10, aes(x = reorder(Country.Region, total_cases), fill = Country.Region)) +
+  geom_col(aes(y = total_cases), alpha = 0.7, color = "black") +  # Cases bars
+  geom_col(aes(y = total_deaths), alpha = 0.9, color = "red") +   # Deaths bars
+  labs(
+    title = "Top 10 Locations by COVID-19 Cases vs. Deaths",
+    x = "Location",
+    y = "Total Count",
+    fill = "Country"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+ggplot(top_10, aes(x = total_cases, y = total_deaths, label = Country.Region)) +
+  geom_point(color = "blue", size = 4) +
+  geom_text(vjust = -0.5, size = 4) +
+  labs(
+    title = "COVID-19: Cases vs. Deaths in Top 10 Locations",
+    x = "Total Cases",
+    y = "Total Deaths"
+  ) +
+  theme_minimal()
+```
+
+## Countries with the highest fatality rates
+
+Below are the countries that suffer the highest percentage of deaths compared to cases. The virus originated in China which gave the country little time to react to the pandemic and caused ratio to be so far above average there. We can also see countries like Peru, Mexico, Ecuador, and Bulgaria are also remarkably high, and far above the average of 1.2%. This suggests that these countries' response to the pandemic was not as effective as they could have been. In preparing for any future pandemic, it will be important to study how the Corona virus spread through these countries compared to the countries like South Korea and Japan. 
+
+```{r}
+top_5_death_ratio <- global_data %>%
+  arrange(desc(death_ratio)) %>%  # Sort by death ratio in descending order
+  select(Country.Region, death_ratio) %>%  # Keep relevant columns
+  head(5)  # Get the top 5
+print(top_5_death_ratio)
+
+
+top_5_death_ratio <- top_5_death_ratio %>%
+  mutate(death_ratio = as.numeric(gsub("%", "", death_ratio)))
+
+ggplot(top_5_death_ratio, aes(x = reorder(Country.Region, death_ratio), y = death_ratio, fill = death_ratio)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +  
+  scale_fill_gradient(low = "yellow", high = "red") +  
+  labs(
+    title = "Top 5 Countries by COVID-19 Death Ratio",
+    x = "Country",
+    y = "Death Ratio (%)",
+    fill = "Death Ratio (%)"
+  ) +
+  theme_minimal()
+
+```
+
+
+## Conclusion and possible bias
+
+It is likely that there will be another pandemic within our lifetimes and if we wish to prepare, we need to look at how the world reacted to the Covid-19 pandemic. It is noticeably clear that countries like Japan and South Korea took effective actions to protect their citizens and that these actions saved thousands of lives in these countries. In contrast, we also need to examine fewer effective countries to see where they went wrong in their own pandemic responses. 
+
+  
+It is worth noting that bias may be introduced to this data in several ways, for example in the rates of testing. Some countries may have underreported the number of cases of the virus due to a lack of testing or healthcare overcapacity. Different countries and regions reported deaths due to covid differently. It is also possible that some countries underreported covid data for political reasons 
+
